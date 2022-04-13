@@ -1,0 +1,352 @@
+---
+title: "kraken2.minION"
+author: "Rachel Xu"
+date: "10/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+# kraken2.path <- "/Users/rx32940/Dropbox/5.Rachel-projects/16SrRNA/dataset3/kraken2"
+kraken2.path <- "/Users/rx32940/Dropbox/5.Rachel-projects/16SrRNA/dataset2/kraken2"
+```
+
+
+### combined kreport 
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+kreport <- read.csv(file.path(kraken2.path, "combined.kreport"), sep = "\t", skip = 9)
+# kreport <- read.csv(file.path(kraken2.path, "combined.kreport"), sep = "\t", skip = 4)
+
+kreport$name <- trimws(kreport$name)
+
+kreport_species <- kreport %>% subset(lvl_type== "S") %>% select(ends_with("_all"),name) %>% select(-c("tot_all")) 
+colnames(kreport_species) <- c("barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12", "Species_TAXA")
+# colnames(kreport_species) <- c("barcode10","barcode12","Species_TAXA")
+kreport_species_longer <- kreport_species %>% pivot_longer(names_to = "Samples", values_to = "Read.Count", cols = starts_with("barcode"))
+kreport_species_longer
+# kreport_species 
+
+```
+## format taxa table from mpa format outputs
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# mpa.taxa <- read.csv(file.path(kraken2.path, "combined.mpa"), sep = "\t")
+# mpa.taxa
+# # colnames(mpa.taxa) <- c("Classification", "barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12")
+# colnames(mpa.taxa) <- c("Classification", "barcode10","barcode12")
+# taxa_table <- mpa.taxa %>% subset(grepl("s__", Classification))
+# 
+# TAXA_TABLE<- data.frame(Domain=character(), Phylum=character(), Class=character(), Order=character(), Family=character(), Genus=character(), Species=character())
+# 
+# all_rows <- lapply(taxa_table[,"Classification"], get_taxa)
+# 
+# get_taxa <- function(row){
+#   s1 <- unlist(strsplit(row, "|", fixed = TRUE))
+#   d <- ifelse(sum(grepl("d__",s1))==1, s1[grepl("d__",s1)], "")
+#   p <- ifelse(sum(grepl("p__",s1))==1, s1[grepl("p__",s1)], "")
+#   c <- ifelse(sum(grepl("c__",s1))==1, s1[grepl("c__",s1)], "")
+#   o <- ifelse(sum(grepl("o__",s1))==1, s1[grepl("o__",s1)], "")
+#   f <- ifelse(sum(grepl("f__",s1))==1, s1[grepl("f__",s1)], "")
+#   g <- ifelse(sum(grepl("g__",s1))==1, s1[grepl("g__",s1)], "")
+#   s <- ifelse(sum(grepl("s__",s1))==1, s1[grepl("s__",s1)], "")
+# 
+#   current_taxa <- data.frame(Domain=d, Phylum=p, Class=c, Order=o, Family=f, Genus=g, Species = s)
+#   # print(current_taxa)
+#   current_taxa
+# }
+# 
+# TAXA_TABLE <-do.call(rbind, all_rows)
+# 
+# TAXA_TABLE
+# 
+# taxa_table <- TAXA_TABLE %>%  mutate(Species_TAXA = sapply(Species, function(x){
+#     unlist(strsplit(x, "__", fixed = TRUE))[2]
+#   })) %>% select(-starts_with("barcode"))
+
+# write.csv(taxa_table, file.path(kraken2.path, "taxa_table.txt"), sep="\t", quote = FALSE, row.names = FALSE)
+
+```
+# combine species otu with taxa
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+taxa_table <- read.csv(file.path(kraken2.path, "taxa_table.txt"))
+# kreport_species
+genus_summary <- left_join(kreport_species_longer, taxa_table)
+
+# Find the top 10 bacteria genus and combine rest of the bacterial genus taxa
+bacteria_summary <- genus_summary %>% subset(grepl("Bacteria",Domain)) %>% group_by(Genus) %>% group_by(Samples, Genus) %>%summarise(Genus.Reads = sum(Read.Count)) %>% arrange(desc(Genus.Reads)) 
+bacteria_summary %>% subset(Genus.Reads != 0) %>% ungroup()%>% distinct(Genus) %>% summarise(n_genus=n())
+bacteria_summary %>% subset(Genus.Reads != 0) %>% subset(Genus == "g__Leptospira") %>% ungroup()%>%summarise(mean=mean(Genus.Reads), sd=sd(Genus.Reads))
+top_10_genus <- bacteria_summary %>% group_by(Samples) %>% slice(1:11) %>% subset(Genus != "")
+# top_10_genus
+
+other.microbial <- anti_join(bacteria_summary, top_10_genus,by=c("Samples","Genus"))  %>% group_by(Samples)%>% summarise(Genus = "g__Other.Bacteria.Genus",Genus.Reads=sum(Genus.Reads))
+
+unique(genus_summary$Domain)
+# reads assign to rest of the domain were combined into one category
+all_viroids <- genus_summary %>% subset(grepl("Viroids",Domain)) %>% group_by(Samples)%>% summarise(Genus ="d__all_Viroids", Genus.Reads = sum(Read.Count))
+all_archaea <- genus_summary %>% subset(grepl("Archaea",Domain)) %>% group_by(Samples)%>% summarise(Genus ="d__all_Archaea", Genus.Reads = sum(Read.Count))
+all_virus <- genus_summary %>% subset(grepl("Viruses",Domain)) %>% group_by(Samples)%>% summarise(Genus ="d__all_Viruses", Genus.Reads = sum(Read.Count))
+all_eu <- genus_summary %>% subset(grepl("Eukaryota",Domain)) %>% group_by(Samples)%>% summarise(Genus ="d__all_Eukaryota", Genus.Reads = sum(Read.Count))
+# unclassified reads
+
+unclassified <- kreport %>% subset(lvl_type == "U") %>% select(ends_with("_all")) %>% select(!"tot_all") 
+colnames(unclassified) <- c("barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12")
+# colnames(unclassified) <- c("barcode10","barcode12")
+
+unclassified_longer <- unclassified %>% pivot_longer(names_to = "Samples", values_to = "Genus.Reads", cols = c("barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12"))
+# unclassified_longer <- unclassified %>% pivot_longer(names_to = "Samples", values_to = "Genus.Reads", cols = c("barcode10","barcode12"))
+
+unclassified_longer$Genus <- "x__unclassified"
+
+combined_Genus_stat <- rbind(top_10_genus, other.microbial, all_eu ,all_viroids,all_archaea, all_virus,unclassified_longer)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+library(ggplot2)
+library(scales)
+special.taxa <- c("x__unclassified","d__all_Eukaryota","d__all_Archaea", "d__all_Viruses", "d__all_Viroids" ,"g__Other.Bacteria.Genus")
+combined_Genus_stat$Genus <- factor(combined_Genus_stat$Genus, levels= c(special.taxa, unique(combined_Genus_stat$Genus[!combined_Genus_stat$Genus %in% special.taxa])))
+
+# combined_Genus_stat.1 <- combined_Genus_stat %>% mutate(samples = sapply(Samples, function(x){
+#   ifelse(x == "barcode10", "water", "soil")
+# })) %>% subset(Genus.Reads !=0)
+# 
+# combined_Genus_stat.1$samples <- factor(combined_Genus_stat.1$samples, levels = c("water", "soil"))
+
+combined_Genus_stat.1 <- combined_Genus_stat  %>% subset(Genus.Reads !=0)
+
+p <- ggplot(combined_Genus_stat.1, aes(x=Samples, y=Genus.Reads, fill=Genus))+
+  geom_col()+
+  theme_bw()+
+  scale_fill_manual(values =   c(
+    
+        RColorBrewer::brewer.pal(12,'Paired'),
+        RColorBrewer::brewer.pal(12,'Set3'),
+        RColorBrewer::brewer.pal(12,'Pastel1'),
+        RColorBrewer::brewer.pal(12,'Set1')
+        
+    ))+
+  scale_y_continuous(labels = comma) +
+  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+p
+library(plotly)
+ggplotly(p)
+ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_overview.pdf"),p,width = 9, height = 7)
+# ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_overview.pdf"),p, width = 7, height=7)
+# combined_Genus_stat
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+mpa.taxa <- read.csv(file.path(kraken2.path, "combined.mpa"), sep = "\t")
+
+colnames(mpa.taxa) <- c("Classification", "barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12")
+# colnames(mpa.taxa) <- c("Classification", "barcode10","barcode12")
+
+lepto.genus <- mpa.taxa %>% subset(grepl("g__", Classification))%>%subset(grepl("g__Leptospira", Classification))
+
+lepto.genus.longer <- lepto.genus %>% pivot_longer(names_to = "Samples", values_to = "Reads", cols = c("barcode06","barcode07","barcode08","barcode09","barcode10","barcode11","barcode12"))
+# lepto.genus.longer <- lepto.genus %>% pivot_longer(names_to = "Samples", values_to = "Reads", cols = c("barcode10","barcode12"))
+
+# lepto.genus.longer
+classified.lepto <- lepto.genus.longer %>% subset(grepl("s__", Classification) & !grepl("Leptospira sp. ", Classification)) %>% group_by(Samples) %>% summarise(Classified.Reads = sum(Reads))
+
+total.lepto <- lepto.genus.longer %>% subset(Classification =="d__Bacteria|p__Spirochaetes|c__Spirochaetia|o__Leptospirales|f__Leptospiraceae|g__Leptospira")
+
+unclassified.sp <- left_join(classified.lepto, total.lepto) %>% mutate(unclassified.lepto = Reads-Classified.Reads) %>% select(c(Samples, unclassified.lepto)) %>% rename(Reads = unclassified.lepto) %>%mutate(Leptospira.species = "s__unclassified.Lepto.sp.")
+
+lepto.species <- lepto.genus.longer %>% subset(grepl("s__", Classification) & !grepl("Leptospira sp. ", Classification)) %>% mutate(Leptospira.species = sapply(Classification, function(x){
+  s1 <- unlist(strsplit(x, "|", fixed =TRUE))
+  s1[length(s1)]
+})) %>% select(-c("Classification"))
+# lepto.species
+
+final_lepto <- rbind(lepto.species, unclassified.sp)
+final_lepto_perc <- final_lepto %>% group_by(Samples) %>% mutate(Percentage.Lepto = Reads/sum(Reads)*100) %>% pivot_longer(names_to = "Stat", values_to = "Reads", cols = c(Reads,Percentage.Lepto ))
+# final_lepto_perc
+final_lepto_perc$Stat <- factor(final_lepto_perc$Stat, levels= c("Reads", "Percentage.Lepto"))
+
+
+# final_lepto_perc.1 <- final_lepto_perc %>% subset(Reads != 0) %>% mutate(samples = sapply(Samples,function(x){
+#   ifelse(x == "barcode10", "water", "soil")
+# }))
+# final_lepto_perc.1$samples <- factor(final_lepto_perc.1$samples, levels = c("water", "soil"))
+
+final_lepto_perc.1 <- final_lepto_perc %>% subset(Reads != 0)
+
+p1 <- ggplot(final_lepto_perc.1, aes(x= Samples, y= Reads, fill= Leptospira.species))+
+  geom_col()+
+  facet_wrap(~Stat, scales = "free_y")+
+  theme_bw()+
+  scale_fill_manual(values =   c(
+    RColorBrewer::brewer.pal(8,'Set1'),
+     RColorBrewer::brewer.pal(12,'Paired'),
+    RColorBrewer::brewer.pal(12,'Set3'),
+       
+        
+        RColorBrewer::brewer.pal(12,'Pastel1')
+    ))+
+  scale_y_continuous(labels = comma) +
+  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+
+p1
+library(plotly)
+ggplotly(p1)
+ggsave( "/Users/rx32940/Dropbox/5.Rachel-projects/16SrRNA/dataset2/figures/kraken2/Leptospira_composition.pdf",p1,width=12)
+# ggsave( file.path(kraken2.path, "../figures/kraken2/Leptospira_composition.pdf"),p1,width = 8,height = 5)
+# lepto.genus.longer %>% subset(grepl("s__", Classification) & !grepl("Leptospira sp. ", Classification)) #
+# lepto.genus.longer%>% subset( grepl("Leptospira sp. ", Classification))
+```
+
+
+## lepto group dictionary
+```{r}
+# lepto.species <- data.frame(species=sapply(unique(final_lepto_perc$Leptospira.species), function(x){
+#   unlist(strsplit(x, "__", fixed=TRUE))[2]
+# }))
+# write.csv(lepto.species, file.path(kraken2.path, "../reference/lepto.species.group.dict.csv"), quote = FALSE, row.names = FALSE)
+
+species.dict <- read.csv(file.path(kraken2.path, "../reference/lepto.species.group.dict.csv"))
+path.species <- species.dict %>% subset(group == "p1" | group == "p2")
+path.species %>% subset(group == "p2") %>% select(taxaID)
+```
+
+```{r}
+final_lepto_perc.2 <- final_lepto_perc.1 %>% mutate(species = sapply(Leptospira.species, function(x){
+  s <- unlist(strsplit(x, "__", fixed = TRUE))
+  s[2]
+}))
+
+left_join(final_lepto_perc.2, species.dict, by="species") %>% subset(Samples %in% paste0("barcode", c("06","07","08","09"))) %>% subset(group=="p2") %>% subset(Stat=="Reads") %>% summarise(average = mean(Reads)) %>% ungroup() %>% summarise(mean(average), sd(average))
+
+left_join(final_lepto_perc.2, species.dict, by="species") %>% subset(Samples %in% paste0("barcode", c("06","07","08","09"))) %>% subset(group=="p2") %>% ungroup()%>%distinct(Leptospira.species)
+left_join(final_lepto_perc.2, species.dict, by="species") %>% subset(Samples %in% paste0("barcode", c("10","11","12"))) %>% subset(group=="p2") %>% ungroup()%>%distinct(Leptospira.species)
+
+
+
+```
+
+# Blast Intermediate and Pathogenic Lepto Reads
+
+### intermediate species
+- blastn megablasted
+- output column annotayions: https://www.metagenomics.wiki/tools/blast/blastn-output-format-6
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(stringr)
+kraken2.path <- "/Users/rx32940/Dropbox/5.Rachel-projects/16SrRNA/dataset2/kraken2"  
+input_dir <- file.path(kraken2.path,"blast_lepto_reads/all_lepto")
+
+inter.blast.files <- list.files(input_dir)
+inter.blast.files <- inter.blast.files[inter.blast.files != "barcode07.txt"& inter.blast.files!= "barcode11.txt"]
+inter.blast.files
+get_best_hit<- function(x){
+  file.name <- basename(x)
+  sample <- unlist(strsplit(x, ".", fixed = TRUE))[1]
+  blast.file <- read.csv(file.path(input_dir, x), sep = "\t", header = FALSE)
+  colnames(blast.file) <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
+  best_hit<- blast.file %>% group_by(qseqid) %>% slice(which.min(evalue)) %>% mutate(sample = sample)
+  best_hit
+}
+
+best_hits <- lapply(inter.blast.files, get_best_hit)
+intermediate.species.found <- do.call(rbind, best_hits)
+intermediate.species.found <- intermediate.species.found %>% subset(evalue < 1e-30)
+# unique(intermediate.species.found$sseqid)
+
+# use batch entrez to query all seqid name in the nucleotide database, send search results to collection, create a new collection, edit collection, save as csv
+# write.csv(data.frame(unique(intermediate.species.found$sseqid)),file.path(kraken2.path, "blast_lepto_reads", "all.unique.lepto.sseqid.txt"), sep="\n", quote = FALSE, row.names = FALSE, col.names = FALSE)
+sseqid_dict <- read.csv(file.path(kraken2.path, "blast_lepto_reads/analysis", "meta_all_lepto_20211012.csv")) %>% 
+  mutate(sseqid = sapply(URL, function(x){
+  unlist(strsplit(x, "/", fixed=TRUE))[3]
+}))
+
+annotates.intermediate.reads <- left_join(intermediate.species.found, sseqid_dict)
+
+annotates.intermediate.reads
+
+
+annotates.intermediate.reads.taxa <- annotates.intermediate.reads %>% mutate(taxa=sapply(Title, function(x){
+
+  s <- unlist(strsplit(x, " ", fixed=TRUE))
+  paste(s[1], s[2])
+
+}))
+
+out.file.inter <- annotates.intermediate.reads.taxa %>% select(-c(URL, Description, Details, ShortDetails, Resource, Type, Identifiers, Db, EntrezUID, Properties))
+
+
+group_dict <- read.csv(file.path(kraken2.path, "../reference/lepto.species.group.dict.csv")) %>% rename(taxa = species)
+
+out.file.inter.group <- left_join(out.file.inter, group_dict)
+out.file.inter.group
+out.file.inter.group.sum <- out.file.inter.group %>%
+  group_by(sample) %>% 
+  mutate(total = n()) %>% 
+  group_by(group, sample)  %>% mutate(group_total = n()) %>%
+  mutate(group_prop=(group_total/total)*100) %>% 
+  pivot_longer(names_to="total_group_stats", values_to = "group_count", cols=c(group_total, group_prop))%>% select(c(sample, group, total_group_stats, group_count)) %>% distinct()
+out.file.inter.group.sum$total_group_stats <- factor(out.file.inter.group.sum$total_group_stats, levels=c("group_total", "group_prop"))
+group_stats_label <- c("Group Read Counts", "Group Proportion (%)")
+names(group_stats_label) <- c("group_total", "group_prop")
+# write.csv(out.file.inter.group, file.path(kraken2.path, "blast_lepto_reads/analysis/all.lepto.read.blast.output.csv"))
+
+library(ggplot2)
+library(plotly)
+library(scales)
+library(gridExtra)
+library(cowplot)
+
+p1 <- ggplot(out.file.inter.group.sum, aes(x=sample ,y=group_count,fill= group))+
+  geom_bar(stat="identity")+
+  facet_wrap(~total_group_stats, scale="free_y", labeller = labeller(total_group_stats = group_stats_label))+
+  theme_bw()+
+  scale_fill_manual(values =   c(
+        RColorBrewer::brewer.pal(12,'Paired'),
+        RColorBrewer::brewer.pal(12,'Set3'),
+        RColorBrewer::brewer.pal(12,'Pastel1'),
+        RColorBrewer::brewer.pal(12,'Set1'),
+        RColorBrewer::brewer.pal(12,'Dark2')
+    ))+
+  scale_y_continuous(label=comma)+
+  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12),axis.title = element_blank(), strip.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+
+p1
+
+out.file.inter.group.taxa.sum <- out.file.inter.group %>% group_by(taxa, sample) %>% summarise(species.count=n()) %>% mutate(`Leptospira Species` = str_replace(taxa, "Leptospira", "L.")) %>%  group_by(sample)%>%mutate(`Species proportion (%)` = (species.count/sum(species.count))*100)  %>% pivot_longer(names_to="species_stat", values_to="count_value", cols=c(species.count, `Species proportion (%)`))
+out.file.inter.group.taxa.sum$species_stat <- factor(out.file.inter.group.taxa.sum$species_stat, levels=c("species.count", "Species proportion (%)"))
+
+p2 <- ggplot(out.file.inter.group.taxa.sum, aes(x=sample,y=count_value ,fill= `Leptospira Species`))+
+  geom_bar(stat = "identity")+
+  facet_wrap(~species_stat, scales = "free_y")+
+  theme_bw()+
+  scale_fill_manual(values =   c(
+       
+        RColorBrewer::brewer.pal(12,'Dark2'),
+       
+        RColorBrewer::brewer.pal(12,'Set1'),
+         RColorBrewer::brewer.pal(12,'Pastel1'),
+         RColorBrewer::brewer.pal(12,'Paired'),
+        RColorBrewer::brewer.pal(12,'Set3')
+    ))+
+  scale_y_continuous(label=comma)+
+  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12),axis.title = element_blank(), strip.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+
+ggplotly(p2)
+
+cp <- grid.arrange(p1, p2, heights=c(20,25))
+# ggsave("/Users/rx32940/Dropbox/5.Rachel-projects/16SrRNA/dataset2/figures/kraken2/all_lepto_reads_blast.pdf",cp, width = 16, height = 12)
+
+```

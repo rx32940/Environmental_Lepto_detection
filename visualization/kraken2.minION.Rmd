@@ -121,9 +121,22 @@ combined_Genus_stat$Genus <- factor(combined_Genus_stat$Genus, levels= c(special
 # 
 # combined_Genus_stat.1$samples <- factor(combined_Genus_stat.1$samples, levels = c("water", "soil"))
 
-combined_Genus_stat.1 <- combined_Genus_stat  %>% subset(Genus.Reads !=0)
+combined_Genus_stat.1 <- combined_Genus_stat  %>% subset(Genus.Reads !=0) %>% subset(Samples %in% c("barcode06", "barcode12")) %>% mutate(Samples = sapply(Samples, function(x){
+  switch(
+    x,
+    "barcode09" = "Soil",
+    "barcode10" = "Water"
+  )
+}))%>% dplyr::rename(Reads=Genus.Reads) %>% group_by(Samples)%>% mutate(total = sum(Reads)) %>% mutate(Percentage=Reads/total) %>% pivot_longer(cols=c(Reads, Percentage), names_to = "stat", values_to = "values") 
+combined_Genus_stat.1$stat <- factor(combined_Genus_stat.1$stat, levels=c("Reads", "Percentage"))
 
-p <- ggplot(combined_Genus_stat.1, aes(x=Samples, y=Genus.Reads, fill=Genus))+
+
+combined_Genus_stat.2 <- combined_Genus_stat  %>% subset(Genus.Reads !=0) %>% subset(Samples %in% c("barcode06", "barcode12")) %>% dplyr::rename(Reads=Genus.Reads) %>% group_by(Samples)%>% mutate(total = sum(Reads)) %>% mutate(Percentage=Reads/total) %>% pivot_longer(cols=c(Reads, Percentage), names_to = "stat", values_to = "values") 
+combined_Genus_stat.2$stat <- factor(combined_Genus_stat.2$stat, levels=c("Reads", "Percentage"))
+
+
+
+p <- ggplot(combined_Genus_stat.2, aes(x=Samples, y=values, fill=Genus))+
   geom_col()+
   theme_bw()+
   scale_fill_manual(values =   c(
@@ -135,12 +148,15 @@ p <- ggplot(combined_Genus_stat.1, aes(x=Samples, y=Genus.Reads, fill=Genus))+
         
     ))+
   scale_y_continuous(labels = comma) +
-  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+  facet_wrap(~stat, scales = "free")+
+  theme(axis.text.x = element_text(angle=90, vjust = 0.5, hjust=1), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))+
+  labs(y="Number of Reads")+
+  guides(fill=guide_legend(ncol=1))
 p
 library(plotly)
 ggplotly(p)
-ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_overview.pdf"),p,width = 9, height = 7)
-# ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_overview.pdf"),p, width = 7, height=7)
+# ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_overview.pdf"),p,width = 9, height = 7)
+ggsave(file.path(kraken2.path,"../figures/kraken2/Microbial_composition_barcode6&12.pdf"),p, width = 9, height=7)
 # combined_Genus_stat
 ```
 
@@ -182,7 +198,13 @@ final_lepto_perc$Stat <- factor(final_lepto_perc$Stat, levels= c("Reads", "Perce
 # }))
 # final_lepto_perc.1$samples <- factor(final_lepto_perc.1$samples, levels = c("water", "soil"))
 
-final_lepto_perc.1 <- final_lepto_perc %>% subset(Reads != 0)
+final_lepto_perc.1 <- final_lepto_perc %>% subset(Reads != 0) %>% subset(Samples %in% c("barcode09", "barcode10")) %>% mutate(Samples = sapply(Samples, function(x){
+  switch(
+    x,
+    "barcode09" = "Soil",
+    "barcode10" = "Water"
+  )
+}))#%>% dplyr::rename(Reads=Genus.Reads) %>% group_by(Samples)%>% mutate(total = sum(Reads)) %>% mutate(Percentage=Reads/total) %>% pivot_longer(cols=c(Reads, Percentage), names_to = "stat", values_to = "values") 
 
 p1 <- ggplot(final_lepto_perc.1, aes(x= Samples, y= Reads, fill= Leptospira.species))+
   geom_col()+
@@ -197,7 +219,7 @@ p1 <- ggplot(final_lepto_perc.1, aes(x= Samples, y= Reads, fill= Leptospira.spec
         RColorBrewer::brewer.pal(12,'Pastel1')
     ))+
   scale_y_continuous(labels = comma) +
-  theme(axis.text.x = element_text(angle=90), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
+  theme(axis.text.x = element_text(angle=90, vjust = 0.5, hjust=1), axis.text = element_text(size=12), legend.text = element_text(size=12), legend.title = element_text(size=12))
 
 p1
 library(plotly)
